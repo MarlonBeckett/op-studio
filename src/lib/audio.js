@@ -6,12 +6,11 @@ import * as Tone from 'tone'
 let synth = null
 let reverb = null
 let started = false
+let silentKeepalive = null
 
 /**
  * Play a short silent buffer inside the user gesture. On iOS Safari this
- * is what actually "unlocks" the WebAudio output — without it the context
- * can be running but produce no sound, especially when the ringer switch
- * is on silent.
+ * is one part of "unlocking" the WebAudio output.
  */
 function unlockIOSAudio(ctx) {
   try {
@@ -27,6 +26,65 @@ function unlockIOSAudio(ctx) {
 }
 
 /**
+ * Build a tiny silent WAV (PCM) as a data URL. Doing it in JS — rather
+ * than shipping a binary asset or trusting a hand-typed base64 blob —
+ * guarantees a valid, decodable file.
+ */
+function buildSilentWavDataUrl() {
+  const sampleRate = 8000
+  const numSamples = 800 // 0.1s
+  const headerSize = 44
+  const dataSize = numSamples * 2 // 16-bit mono
+  const buf = new ArrayBuffer(headerSize + dataSize)
+  const view = new DataView(buf)
+  const writeStr = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)) }
+  writeStr(0, 'RIFF')
+  view.setUint32(4, 36 + dataSize, true)
+  writeStr(8, 'WAVE')
+  writeStr(12, 'fmt ')
+  view.setUint32(16, 16, true)        // PCM chunk size
+  view.setUint16(20, 1, true)         // PCM format
+  view.setUint16(22, 1, true)         // mono
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * 2, true) // byte rate
+  view.setUint16(32, 2, true)         // block align
+  view.setUint16(34, 16, true)        // bits per sample
+  writeStr(36, 'data')
+  view.setUint32(40, dataSize, true)
+  // samples remain zero == silence
+  let binary = ''
+  const bytes = new Uint8Array(buf)
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+  return 'data:audio/wav;base64,' + btoa(binary)
+}
+
+/**
+ * Start a silent, looping <audio> element. On iOS, an active HTMLAudioElement
+ * promotes the page's audio session to "playback" mode, which is what
+ * actually makes WebAudio output audible while the hardware ringer switch
+ * is flipped to silent. Without this, Safari happily shows a "playing"
+ * speaker icon in the tab but no sound reaches the speakers.
+ */
+function startSilentKeepalive() {
+  if (silentKeepalive) return
+  try {
+    const el = document.createElement('audio')
+    el.setAttribute('x-webkit-airplay', 'deny')
+    el.preload = 'auto'
+    el.loop = true
+    el.muted = false
+    el.volume = 0.0001
+    el.playsInline = true
+    el.src = buildSilentWavDataUrl()
+    const p = el.play()
+    if (p && typeof p.catch === 'function') p.catch(() => {})
+    silentKeepalive = el
+  } catch (_) {
+    // ignore
+  }
+}
+
+/**
  * Initialize the audio graph. Must be called from a user gesture
  * (button click / touchstart) to satisfy browser autoplay policies.
  *
@@ -36,6 +94,10 @@ function unlockIOSAudio(ctx) {
  */
 export async function ensureAudio() {
   if (started) return
+  // Kick off the silent <audio> element FIRST, still inside the gesture,
+  // so iOS flips the page into "playback" audio session mode before we
+  // start producing WebAudio output.
+  startSilentKeepalive()
   await Tone.start()
   const rawCtx = Tone.getContext().rawContext
   if (rawCtx && rawCtx.state !== 'running' && typeof rawCtx.resume === 'function') {
