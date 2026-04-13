@@ -1,8 +1,10 @@
 # OP Studio
 
-A Teenage Engineering-styled key, chord progression, and melody builder that uses the [Chromatone](https://chromatone.center) color system to visualize harmony.
+A key, chord progression, and melody builder for [OP-1](https://teenage.engineering/products/op-1) users who don't know much about keys, scales, or chords yet.
 
-Pick a key, sketch out chord progressions, and build melodies — all rendered with the twelve-tone chromatic color palette that maps each pitch class to its own hue. Standalone app; not part of chromatone.center.
+The interface is styled after Teenage Engineering hardware so it feels at home next to your OP-1, and every note is colored using the [Chromatone](https://chromatone.center) twelve-tone palette — the same color-to-pitch mapping Chromatone uses — so you can *see* how a key, chord, or melody fits together without needing to read theory first.
+
+Pick a key, sketch a progression, and build melodies visually. Standalone app; not affiliated with chromatone.center or Teenage Engineering.
 
 ## Stack
 

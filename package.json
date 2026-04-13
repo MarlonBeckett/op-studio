@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Teenage Engineering-styled key, chord progression, and melody builder using the Chromatone color system. Standalone app — not part of chromatone.center.",
+  "description": "A key, chord, and melody builder for OP-1 users new to music theory. Teenage Engineering-styled, with Chromatone-compatible note colors.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
