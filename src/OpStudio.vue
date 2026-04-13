@@ -8,6 +8,7 @@ import {
   getChromaNotes,
   filterByComplexity,
 } from './lib/chordFinder.js'
+import { identifyChord } from './lib/chordIdentify.js'
 import { ensureAudio, playNote, stopNote, playNoteOnce } from './lib/audio.js'
 import {
   SCALE_INFO,
@@ -428,14 +429,79 @@ async function playProgression() {
 }
 
 function isHighlighted(key) {
+  if (identifyMode.value) {
+    // In identify mode, the only "lit" keys are the ones the user has tapped.
+    return tappedKeys.value.has(key.midi)
+  }
   const sel = selectedChord.value
   if (sel) return sel.midiSet.has(key.midi)
   return scalePitchSet.value.has(key.pitch)
 }
 function isHighlightRoot(key) {
+  if (identifyMode.value) return false
   const sel = selectedChord.value
   if (sel) return sel.rootMidiSet.has(key.midi)
   return key.pitch === tonic.value
+}
+
+// ══════════════════════════════════════════════════════════════
+//   Identify mode — reverse chord lookup from a tapped shape
+//
+//   When the user knows the shape but not the name. Toggle the
+//   mode on, tap keys to build a pitch-class query, and the
+//   results panel lists matching chords (in-key first, then
+//   Tonal-detected out-of-key matches).
+// ══════════════════════════════════════════════════════════════
+
+const identifyMode = ref(false)
+const tappedKeys = ref(new Set())
+
+function toggleIdentifyMode() {
+  identifyMode.value = !identifyMode.value
+  tappedKeys.value = new Set()
+  if (identifyMode.value) {
+    // Clear any held/hovered chord so the keyboard is blank for tapping.
+    heldChord.value = null
+    hoveredChord.value = null
+  }
+}
+
+function clearTappedKeys() {
+  tappedKeys.value = new Set()
+}
+
+function toggleTappedKey(midi) {
+  const next = new Set(tappedKeys.value)
+  if (next.has(midi)) next.delete(midi)
+  else next.add(midi)
+  tappedKeys.value = next
+}
+
+// Click handler for the main keyboard. In normal mode it just auditions
+// a single note; in identify mode it toggles the note into the query set
+// and still fires the preview tone so the tap feels responsive.
+async function handleKeyClick(midi) {
+  if (identifyMode.value) {
+    toggleTappedKey(midi)
+    await ensureAudio()
+    playNoteOnce(midi, 0.85, 0.35)
+    return
+  }
+  playKey(midi)
+}
+
+const identifyResult = computed(() => {
+  if (!identifyMode.value) return null
+  return identifyChord(tappedKeys.value, chordCards.value)
+})
+
+// Click a match in the identify results — pin it as the held chord and
+// drop back into normal mode so the user flows back into their usual
+// "add to progression" workflow.
+function pickIdentifiedChord(card) {
+  heldChord.value = card
+  identifyMode.value = false
+  tappedKeys.value = new Set()
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -592,7 +658,23 @@ const ghostSuggestions = computed(() => {
         <div class="section-label">
           <span>KEYBOARD</span>
           <span class="section-label-right">
-            <span class="hover-hint" v-if="selectedChord">
+            <button
+              class="hw-btn tiny id-toggle"
+              :class="{ on: identifyMode }"
+              @click="toggleIdentifyMode"
+              :title="identifyMode ? 'Exit identify mode' : 'Tap keys to identify a chord'"
+            >ID</button>
+            <button
+              v-if="identifyMode"
+              class="hw-btn tiny id-clear"
+              :disabled="tappedKeys.size === 0"
+              @click="clearTappedKeys"
+              title="Clear tapped keys"
+            >CLEAR</button>
+            <span class="hover-hint" v-if="identifyMode">
+              TAP {{ tappedKeys.size }} NOTE<span v-if="tappedKeys.size !== 1">S</span>
+            </span>
+            <span class="hover-hint" v-else-if="selectedChord">
               <span v-if="heldChord && !hoveredChord">HELD</span>
               <span v-else>PREVIEW</span>
               {{ selectedChord.displayName }}
@@ -613,13 +695,14 @@ const ghostSuggestions = computed(() => {
                 in: isHighlighted(key),
                 out: !isHighlighted(key),
                 root: isHighlightRoot(key) && isHighlighted(key),
+                tapped: identifyMode && tappedKeys.has(key.midi),
               }"
               :style="{
                 left: (key.whiteIndex * WHITE_WIDTH_PCT) + '%',
                 width: WHITE_WIDTH_PCT + '%',
                 '--key-color': noteColor(key.pitch, 2),
               }"
-              @click="playKey(key.midi)"
+              @click="handleKeyClick(key.midi)"
             >
               <div class="key-label">{{ key.name }}</div>
             </div>
@@ -633,15 +716,78 @@ const ghostSuggestions = computed(() => {
                 in: isHighlighted(key),
                 out: !isHighlighted(key),
                 root: isHighlightRoot(key) && isHighlighted(key),
+                tapped: identifyMode && tappedKeys.has(key.midi),
               }"
               :style="{
                 left: 'calc(' + ((key.leftWhiteIdx + 1) * WHITE_WIDTH_PCT) + '% - ' + (WHITE_WIDTH_PCT * 0.3) + '%)',
                 width: (WHITE_WIDTH_PCT * 0.6) + '%',
                 '--key-color': noteColor(key.pitch, 2),
               }"
-              @click="playKey(key.midi)"
+              @click="handleKeyClick(key.midi)"
             >
               <div class="key-label black">{{ key.name }}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Identify mode results — only while identifyMode is on -->
+        <div class="identify-results" v-if="identifyMode && identifyResult">
+          <div class="identify-hint" v-if="identifyResult.hint">
+            {{ identifyResult.hint }}
+          </div>
+          <div class="identify-interval" v-else-if="identifyResult.interval && identifyResult.inKey.length === 0 && identifyResult.other.length === 0">
+            {{ identifyResult.interval }}
+          </div>
+
+          <div class="identify-section" v-if="identifyResult.inKey.length">
+            <div class="identify-section-label">IN KEY · {{ identifyResult.inKey.length }}</div>
+            <div class="identify-matches">
+              <button
+                v-for="c in identifyResult.inKey"
+                :key="'idk' + c.id"
+                class="identify-match"
+                :style="{ '--chip-color': noteColor(c.rootPitch, 2) }"
+                @click="pickIdentifiedChord(c)"
+                :title="'Select ' + c.displayName"
+              >
+                <span class="identify-match-name">{{ c.displayName }}</span>
+                <span class="identify-match-sub">{{ c.chord.name }}</span>
+                <div class="identify-match-kbd">
+                  <div
+                    v-for="key in keyboardWhites"
+                    :key="'imw' + c.id + '-' + key.whiteIndex"
+                    class="mini-white-key"
+                    :class="{ lit: c.midiSet.has(key.midi), rootLit: c.rootMidiSet.has(key.midi) }"
+                    :style="{
+                      left: (key.whiteIndex * WHITE_WIDTH_PCT) + '%',
+                      width: WHITE_WIDTH_PCT + '%',
+                      '--key-color': noteColor(key.pitch, 2),
+                    }"
+                  ></div>
+                  <div
+                    v-for="key in keyboardBlacks"
+                    :key="'imb' + c.id + '-' + key.leftWhiteIdx + '-' + key.pitch"
+                    class="mini-black-key"
+                    :class="{ lit: c.midiSet.has(key.midi), rootLit: c.rootMidiSet.has(key.midi) }"
+                    :style="{
+                      left: 'calc(' + ((key.leftWhiteIdx + 1) * WHITE_WIDTH_PCT) + '% - ' + (WHITE_WIDTH_PCT * 0.3) + '%)',
+                      width: (WHITE_WIDTH_PCT * 0.6) + '%',
+                      '--key-color': noteColor(key.pitch, 2),
+                    }"
+                  ></div>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <div class="identify-section" v-if="identifyResult.other.length">
+            <div class="identify-section-label">ALSO MATCHES</div>
+            <div class="identify-matches other">
+              <span
+                v-for="(name, i) in identifyResult.other"
+                :key="'ido' + i + name"
+                class="identify-match-other"
+              >{{ name }}</span>
             </div>
           </div>
         </div>
@@ -761,6 +907,30 @@ const ghostSuggestions = computed(() => {
                     :title="'Click to rewind from slot ' + (i + 1)"
                   >
                     <span class="prog-step-name">{{ slot.card.displayName }}</span>
+                    <div class="prog-step-kbd">
+                      <div
+                        v-for="key in keyboardWhites"
+                        :key="'psw' + i + '-' + key.whiteIndex"
+                        class="mini-white-key"
+                        :class="{ lit: slot.card.midiSet.has(key.midi), rootLit: slot.card.rootMidiSet.has(key.midi) }"
+                        :style="{
+                          left: (key.whiteIndex * WHITE_WIDTH_PCT) + '%',
+                          width: WHITE_WIDTH_PCT + '%',
+                          '--key-color': noteColor(key.pitch, 2),
+                        }"
+                      ></div>
+                      <div
+                        v-for="key in keyboardBlacks"
+                        :key="'psb' + i + '-' + key.leftWhiteIdx + '-' + key.pitch"
+                        class="mini-black-key"
+                        :class="{ lit: slot.card.midiSet.has(key.midi), rootLit: slot.card.rootMidiSet.has(key.midi) }"
+                        :style="{
+                          left: 'calc(' + ((key.leftWhiteIdx + 1) * WHITE_WIDTH_PCT) + '% - ' + (WHITE_WIDTH_PCT * 0.3) + '%)',
+                          width: (WHITE_WIDTH_PCT * 0.6) + '%',
+                          '--key-color': noteColor(key.pitch, 2),
+                        }"
+                      ></div>
+                    </div>
                   </button>
                   <div class="prog-beats">
                     <button
@@ -1303,6 +1473,146 @@ const ghostSuggestions = computed(() => {
 .key-label.black { color: rgba(255,255,255,0.6); font-size: 9px; }
 .black-key.in .key-label { color: rgba(255,255,255,0.95); }
 
+/* Identify-mode: tapped keys get a bright inset ring so they read as
+   "query input" rather than "playback preview". */
+.white-key.tapped {
+  background:
+    radial-gradient(ellipse at top, color-mix(in srgb, var(--key-color) 55%, white 45%) 0%, var(--key-color) 55%, color-mix(in srgb, var(--key-color) 70%, black 30%) 100%);
+  box-shadow:
+    inset 0 0 0 3px #fff7b0,
+    inset 0 2px 3px rgba(255,255,255,0.6),
+    inset 0 -6px 10px rgba(0,0,0,0.3),
+    2px 0 0 rgba(0,0,0,0.4),
+    0 0 14px color-mix(in srgb, var(--key-color) 70%, transparent);
+  filter: none;
+  opacity: 1;
+}
+.black-key.tapped {
+  background:
+    radial-gradient(ellipse at top, color-mix(in srgb, var(--key-color) 70%, white 30%) 0%, var(--key-color) 55%, color-mix(in srgb, var(--key-color) 60%, black 40%) 100%);
+  box-shadow:
+    inset 0 0 0 2px #fff7b0,
+    inset 0 2px 3px rgba(255,255,255,0.4),
+    inset 0 -4px 6px rgba(0,0,0,0.5),
+    2px 2px 4px rgba(0,0,0,0.6),
+    0 0 14px color-mix(in srgb, var(--key-color) 70%, transparent);
+  filter: none;
+  opacity: 1;
+}
+.white-key.tapped .key-label,
+.black-key.tapped .key-label { color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
+
+/* Identify toggle button in the keyboard section label */
+.hw-btn.tiny.id-toggle {
+  letter-spacing: 0.5px;
+}
+.hw-btn.tiny.id-toggle.on {
+  background: linear-gradient(180deg, #fff7b0 0%, #e8c84a 100%);
+  color: #2a2000;
+  box-shadow:
+    inset 0 1px 2px rgba(255,255,255,0.8),
+    inset 0 -2px 3px rgba(0,0,0,0.2),
+    0 0 10px rgba(255, 220, 80, 0.6);
+}
+
+/* ═══════════════════════════════════════════════
+   IDENTIFY RESULTS PANEL
+   ═══════════════════════════════════════════════ */
+.identify-results {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: linear-gradient(180deg, #1b1b1b 0%, #0e0e0e 100%);
+  border: 1px solid #000;
+  border-radius: 6px;
+  box-shadow:
+    inset 0 1px 2px rgba(255,255,255,0.08),
+    inset 0 -2px 4px rgba(0,0,0,0.6);
+  color: #d7d7d7;
+  font-family: "Fira Code", monospace;
+}
+.identify-hint,
+.identify-interval {
+  font-size: 11px;
+  color: #9a9a9a;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  padding: 4px 0;
+}
+.identify-interval { color: #cfcf9a; }
+
+.identify-section + .identify-section { margin-top: 8px; }
+.identify-section-label {
+  font-size: 10px;
+  font-weight: 800;
+  color: #9a9a9a;
+  letter-spacing: 0.8px;
+  margin-bottom: 6px;
+}
+.identify-matches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.identify-match {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 150px;
+  padding: 6px 10px 8px;
+  border-radius: 4px;
+  border: 1px solid #000;
+  background: linear-gradient(180deg, #2a2a2a 0%, #161616 100%);
+  color: #eaeaea;
+  cursor: pointer;
+  font-family: "Fira Code", monospace;
+  box-shadow:
+    inset 0 1px 2px rgba(255,255,255,0.08),
+    inset 0 -2px 3px rgba(0,0,0,0.6),
+    0 0 0 2px color-mix(in srgb, var(--chip-color) 55%, transparent);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+.identify-match:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 2px rgba(255,255,255,0.12),
+    inset 0 -2px 3px rgba(0,0,0,0.6),
+    0 0 0 2px var(--chip-color),
+    0 0 14px color-mix(in srgb, var(--chip-color) 50%, transparent);
+}
+.identify-match-name {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--chip-color);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
+.identify-match-sub {
+  font-size: 9px;
+  color: #888;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+.identify-match-other {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 3px;
+  border: 1px solid #000;
+  background: #1a1a1a;
+  color: #c6c6c6;
+  font-size: 12px;
+  font-weight: 700;
+}
+.identify-match-kbd {
+  position: relative;
+  width: 100%;
+  height: 28px;
+  margin-top: 2px;
+  background: #1a1a1a;
+  border-radius: 2px;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.7);
+  pointer-events: none;
+}
+
 /* ═══════════════════════════════════════════════
    CHORD CARDS
    ═══════════════════════════════════════════════ */
@@ -1664,9 +1974,11 @@ const ghostSuggestions = computed(() => {
 
 .prog-step {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   justify-content: center;
-  padding: 12px 8px;
+  gap: 6px;
+  padding: 10px 8px;
   border-radius: 6px;
   background: linear-gradient(180deg, #3a3a3a, #1a1a1a);
   border: 1px solid #000;
@@ -1675,6 +1987,16 @@ const ghostSuggestions = computed(() => {
   font-family: "Fira Code", monospace;
   cursor: pointer;
   transition: transform 0.1s ease, box-shadow 0.12s ease, filter 0.12s ease;
+}
+.prog-step-name { text-align: center; }
+.prog-step-kbd {
+  position: relative;
+  width: 100%;
+  height: 24px;
+  background: #1a1a1a;
+  border-radius: 2px;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.7);
+  pointer-events: none;
 }
 .prog-step:hover {
   box-shadow: 0 4px 8px rgba(0,0,0,0.5);
