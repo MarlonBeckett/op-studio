@@ -1,0 +1,21 @@
+{
+  "name": "op-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Teenage Engineering-styled key, chord progression, and melody builder using the Chromatone color system. Standalone app — not part of chromatone.center.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "tonal": "^6.4.0",
+    "tone": "^15.1.22",
+    "vue": "^3.5.21"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.1",
+    "vite": "^7.1.7"
+  }
+}
