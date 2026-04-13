@@ -301,7 +301,7 @@ const makeEmptyProgression = (n = DEFAULT_SLOT_COUNT) => Array(n).fill(null).map
 const progression = ref(makeEmptyProgression())
 const heldChord = ref(null)           // chord held on the big piano (click a tile to set)
 const hoveredChord = ref(null)        // transient preview (ghost / tile hover)
-const progressionOpen = ref(true)     // collapsible card
+const progressionOpen = ref(false)    // collapsible card — collapsed by default
 const bpm = ref(100)                  // 60..180
 const DEFAULT_BEATS = 4
 
