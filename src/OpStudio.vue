@@ -450,6 +450,13 @@ const chordInfo = computed(() => {
   return CHORD_INFO[sel.alias] || FALLBACK_CHORD
 })
 
+// Look up the description for any chord card — used by the inline expansion
+// under a held tile, so each tile can show its own blurb without going
+// through the single `selectedChord` pipeline.
+function chordInfoFor(c) {
+  return CHORD_INFO[c.alias] || FALLBACK_CHORD
+}
+
 // ─── Ghost suggestions for the active progression slot ───
 //
 // Pure function of `progression` + `scaleChroma` + `chordCards` — NEVER of
@@ -890,6 +897,14 @@ const ghostSuggestions = computed(() => {
                 }"
               ></div>
             </div>
+            <!-- Inline description, only when this tile is held -->
+            <div
+              class="chord-tile-desc"
+              v-if="heldChord && heldChord.id === c.id"
+            >
+              <div class="chord-tile-desc-mood">{{ chordInfoFor(c).mood }}</div>
+              <div class="chord-tile-desc-use">{{ chordInfoFor(c).use }}</div>
+            </div>
           </div>
         </div>
         <div v-else class="degree-empty">no chords at this level</div>
@@ -1323,6 +1338,34 @@ const ghostSuggestions = computed(() => {
     inset 0 1px 0 rgba(255,255,255,0.8),
     0 0 0 2px rgba(156, 255, 106, 0.35),
     0 4px 10px rgba(0,0,0,0.35);
+  /* Take the full row so the inline description has room to read. */
+  grid-column: 1 / -1;
+}
+
+.chord-tile-desc {
+  margin-top: 10px;
+  padding: 8px 10px 9px;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #2a2a2a 0%, #1e1e1e 100%);
+  border: 1px solid #0a0a0a;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.05),
+    inset 0 -1px 0 rgba(0,0,0,0.4);
+  color: #d8ffb8;
+  font-family: "Fira Code", monospace;
+}
+.chord-tile-desc-mood {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #9cff6a;
+  margin-bottom: 3px;
+}
+.chord-tile-desc-use {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #cfd8c8;
 }
 .chord-tile:active {
   filter: brightness(0.95);
