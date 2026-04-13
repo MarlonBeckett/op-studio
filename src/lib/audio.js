@@ -8,12 +8,40 @@ let reverb = null
 let started = false
 
 /**
+ * Play a short silent buffer inside the user gesture. On iOS Safari this
+ * is what actually "unlocks" the WebAudio output — without it the context
+ * can be running but produce no sound, especially when the ringer switch
+ * is on silent.
+ */
+function unlockIOSAudio(ctx) {
+  try {
+    const buffer = ctx.createBuffer(1, 1, 22050)
+    const source = ctx.createBufferSource()
+    source.buffer = buffer
+    source.connect(ctx.destination)
+    if (typeof source.start === 'function') source.start(0)
+    else if (typeof source.noteOn === 'function') source.noteOn(0)
+  } catch (_) {
+    // ignore — best-effort unlock
+  }
+}
+
+/**
  * Initialize the audio graph. Must be called from a user gesture
- * (button click) to satisfy browser autoplay policies.
+ * (button click / touchstart) to satisfy browser autoplay policies.
+ *
+ * On iOS Safari we additionally:
+ *   - resume the raw AudioContext synchronously inside the gesture
+ *   - play a 1-sample silent buffer to fully unlock output
  */
 export async function ensureAudio() {
   if (started) return
   await Tone.start()
+  const rawCtx = Tone.getContext().rawContext
+  if (rawCtx && rawCtx.state !== 'running' && typeof rawCtx.resume === 'function') {
+    try { await rawCtx.resume() } catch (_) {}
+  }
+  unlockIOSAudio(rawCtx)
   reverb = new Tone.Reverb({ decay: 2.2, wet: 0.22 }).toDestination()
   synth = new Tone.PolySynth(Tone.Synth, {
     oscillator: { type: 'triangle' },
