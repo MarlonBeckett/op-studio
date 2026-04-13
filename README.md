@@ -4,8 +4,7 @@ A key, chord progression, and melody builder for [OP-1](https://teenage.engineer
 
 The interface is styled after Teenage Engineering hardware so it feels at home next to your OP-1, and every note is colored using the [Chromatone](https://chromatone.center) twelve-tone palette — the same color-to-pitch mapping Chromatone uses — so you can *see* how a key, chord, or melody fits together without needing to read theory first.
 
-Pick a key, sketch a progression, and build melodies visually. Standalone app; not affiliated with chromatone.center or Teenage Engineering.
-
+Pick a key, sketch a progression, and build melodies visually.
 ## Stack
 
 - [Vue 3](https://vuejs.org) + [Vite](https://vitejs.dev)
