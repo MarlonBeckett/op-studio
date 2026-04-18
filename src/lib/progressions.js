@@ -218,6 +218,31 @@ export const MINOR_MOVES = [
 export const MAJOR_CHROMA = '101011010101'
 export const MINOR_CHROMA = '101101011010'
 
+// ─────────── Chord function groups ───────────
+//
+// Maps each scale-position index (0..6) to a plain-language function label.
+// These are used to bucket chord tiles into "Home / Energy / Tension" groups
+// so beginners can see at a glance which chords are stable, which build
+// momentum, and which create pull.
+
+export const MAJOR_FUNCTIONS = ['home', 'energy', 'tension', 'energy', 'tension', 'home', 'tension']
+//                               I       ii        iii→V?     IV        V          vi       vii°
+// NOTE: iii is harmonically ambiguous — it acts as a weak tonic substitute.
+// We put it under tension because beginners rarely use it and grouping it
+// with the "home" chords would make that group feel crowded.  If you want
+// iii in "home", swap index 2 to 'home'.
+
+export const MINOR_FUNCTIONS = ['home', 'tension', 'home', 'energy', 'tension', 'home', 'energy']
+//                               i       ii°        III      iv        v          VI       VII
+
+// ─────────── Starter chord positions ───────────
+//
+// Scale-position indices (0..6) for the "starter" complexity tier.
+// These are the 3-4 chords that cover ~80% of popular music in each key.
+
+export const MAJOR_STARTER_POSITIONS = [0, 3, 4, 5]  // I, IV, V, vi
+export const MINOR_STARTER_POSITIONS = [0, 3, 4, 6]  // i, iv, v, VII
+
 /**
  * Given a scale chroma, return:
  *   - `type`: 'major' | 'minor' | null
@@ -233,6 +258,8 @@ export function getProgressionTableFor(scaleChroma) {
       offsets: MAJOR_OFFSETS,
       qualities: MAJOR_TRIAD_QUALITIES,
       moves: MAJOR_MOVES,
+      functions: MAJOR_FUNCTIONS,
+      starterPositions: MAJOR_STARTER_POSITIONS,
     }
   }
   if (scaleChroma === MINOR_CHROMA) {
@@ -241,6 +268,8 @@ export function getProgressionTableFor(scaleChroma) {
       offsets: MINOR_OFFSETS,
       qualities: MINOR_TRIAD_QUALITIES,
       moves: MINOR_MOVES,
+      functions: MINOR_FUNCTIONS,
+      starterPositions: MINOR_STARTER_POSITIONS,
     }
   }
   return null

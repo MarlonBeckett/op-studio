@@ -24,7 +24,7 @@ import { getProgressionTableFor } from './lib/progressions.js'
 
 const tonic = ref(Number(localStorage.getItem('opstudio-tonic') ?? 3)) // default C
 const scaleChroma = ref(localStorage.getItem('opstudio-scale') ?? '101011010101') // major
-const complexity = ref(localStorage.getItem('opstudio-complexity') ?? 'basic') // 'basic' | 'common' | 'all'
+const complexity = ref(localStorage.getItem('opstudio-complexity') ?? 'starter') // 'starter' | 'basic' | 'common' | 'all'
 
 function setTonic(p) {
   tonic.value = p
@@ -44,9 +44,10 @@ function setComplexity(level) {
 }
 
 const COMPLEXITY_TABS = [
-  { id: 'basic',  label: 'BASIC',  hint: 'triads only' },
-  { id: 'common', label: 'COMMON', hint: '+ 7ths, sus, add9' },
-  { id: 'all',    label: 'ALL',    hint: 'everything' },
+  { id: 'starter', label: 'STARTER', hint: 'the essentials' },
+  { id: 'basic',   label: 'SIMPLE',  hint: 'all triads' },
+  { id: 'common',  label: 'MORE',    hint: '+ 7ths, sus, add9' },
+  { id: 'all',     label: 'EVERYTHING', hint: 'all chord types' },
 ]
 
 // ══════════════════════════════════════════════════════════════
@@ -145,9 +146,22 @@ function buildChordCard(chord, degreeOffset) {
 // Flat list of every chord in the key, filtered by the active complexity
 // tab, in scale-degree order (I, ii, iii, ... — but without the roman labels).
 const chordCards = computed(() => {
+  const table = getProgressionTableFor(scaleChroma.value)
+  let level = complexity.value
+  // Starter tier only works for major/minor; fall back to basic for other scales.
+  if (level === 'starter' && !table) level = 'basic'
   const out = []
   getDegreeChords(scaleChroma.value).forEach(dc => {
-    const filtered = filterByComplexity(dc.chords, complexity.value)
+    // For 'starter', only include the natural triad at starter positions.
+    if (level === 'starter') {
+      const scalePos = table.offsets.indexOf(dc.offset)
+      if (scalePos < 0 || !table.starterPositions.includes(scalePos)) return
+      // Only the first chord (natural triad) at starter positions.
+      const triad = dc.chords[0]
+      if (triad) out.push(buildChordCard(triad, dc.offset))
+      return
+    }
+    const filtered = filterByComplexity(dc.chords, level)
     filtered.forEach(c => out.push(buildChordCard(c, dc.offset)))
   })
   return out
@@ -155,6 +169,46 @@ const chordCards = computed(() => {
 
 // Total count for the LCD readout
 const totalChordCount = computed(() => chordCards.value.length)
+
+// ─── Grouped chord cards by function (Home / Energy / Tension) ───
+//
+// For major/minor scales we bucket chords into 3 groups using plain-language
+// labels. For other scales we return null and the template falls back to
+// the flat grid.
+
+const FUNCTION_META = {
+  home:    { label: 'HOME',    hint: 'stable · resting',       color: '#6aff8a' },
+  energy:  { label: 'ENERGY',  hint: 'building · moving',      color: '#ffcf6a' },
+  tension: { label: 'TENSION', hint: 'pull · wants to resolve', color: '#ff6a6a' },
+}
+const FUNCTION_ORDER = ['home', 'energy', 'tension']
+
+const groupedChordCards = computed(() => {
+  const table = getProgressionTableFor(scaleChroma.value)
+  if (!table) return null // no function data for this scale
+
+  const groups = {
+    home:    [],
+    energy:  [],
+    tension: [],
+  }
+
+  chordCards.value.forEach(card => {
+    const scalePos = table.offsets.indexOf(card.offset)
+    const fn = scalePos >= 0 ? table.functions[scalePos] : null
+    if (fn && groups[fn]) {
+      groups[fn].push(card)
+    }
+  })
+
+  return FUNCTION_ORDER
+    .map(fn => ({
+      key: fn,
+      ...FUNCTION_META[fn],
+      cards: groups[fn],
+    }))
+    .filter(g => g.cards.length > 0)
+})
 
 // ══════════════════════════════════════════════════════════════
 //   OP-1 Keyboard layout
@@ -1012,71 +1066,153 @@ const ghostSuggestions = computed(() => {
           </button>
         </div>
 
-        <!-- Flat compact strip of every chord in the key -->
-        <div class="chord-strip" v-if="chordCards.length">
+        <!-- Grouped chord display (major/minor keys) -->
+        <template v-if="groupedChordCards && chordCards.length">
           <div
-            v-for="c in chordCards"
-            :key="c.id"
-            class="chord-tile"
-            :class="{
-              hovered: hoveredChord && hoveredChord.id === c.id,
-              pinned: heldChord && heldChord.id === c.id,
-            }"
-            @mouseenter="hoveredChord = c"
-            @mouseleave="hoveredChord = null"
-            @click="toggleHeldChord(c)"
+            v-for="group in groupedChordCards"
+            :key="group.key"
+            class="chord-group"
           >
-            <div class="chord-tile-head">
-              <div class="chord-tile-name" :style="{ color: noteColor(c.rootPitch, 2) }">
-                {{ c.displayName }}
-              </div>
-              <div class="tile-actions">
-                <button
-                  class="hw-btn tiny tile-play"
-                  @click.stop="playChordHit(c)"
-                  title="Play chord"
-                >▶</button>
-                <button
-                  class="hw-btn tiny tile-add"
-                  @click.stop="placeChordInProgression(c)"
-                  title="Add to progression"
-                >+</button>
-              </div>
+            <div class="chord-group-header" :style="{ '--group-color': group.color }">
+              <span class="chord-group-label">{{ group.label }}</span>
+              <span class="chord-group-hint">{{ group.hint }}</span>
             </div>
-            <div class="chord-tile-kbd">
+            <div class="chord-strip">
               <div
-                v-for="key in keyboardWhites"
-                :key="'mw' + key.whiteIndex"
-                class="mini-white-key"
-                :class="{ lit: c.midiSet.has(key.midi), rootLit: c.rootMidiSet.has(key.midi) }"
-                :style="{
-                  left: (key.whiteIndex * WHITE_WIDTH_PCT) + '%',
-                  width: WHITE_WIDTH_PCT + '%',
-                  '--key-color': noteColor(key.pitch, 2),
+                v-for="c in group.cards"
+                :key="c.id"
+                class="chord-tile"
+                :class="{
+                  hovered: hoveredChord && hoveredChord.id === c.id,
+                  pinned: heldChord && heldChord.id === c.id,
+                  secondary: c.complexity !== 'basic',
                 }"
-              ></div>
-              <div
-                v-for="key in keyboardBlacks"
-                :key="'mb' + key.leftWhiteIdx + '-' + key.pitch"
-                class="mini-black-key"
-                :class="{ lit: c.midiSet.has(key.midi), rootLit: c.rootMidiSet.has(key.midi) }"
-                :style="{
-                  left: 'calc(' + ((key.leftWhiteIdx + 1) * WHITE_WIDTH_PCT) + '% - ' + (WHITE_WIDTH_PCT * 0.3) + '%)',
-                  width: (WHITE_WIDTH_PCT * 0.6) + '%',
-                  '--key-color': noteColor(key.pitch, 2),
-                }"
-              ></div>
-            </div>
-            <!-- Inline description, only when this tile is held -->
-            <div
-              class="chord-tile-desc"
-              v-if="heldChord && heldChord.id === c.id"
-            >
-              <div class="chord-tile-desc-mood">{{ chordInfoFor(c).mood }}</div>
-              <div class="chord-tile-desc-use">{{ chordInfoFor(c).use }}</div>
+                @mouseenter="hoveredChord = c"
+                @mouseleave="hoveredChord = null"
+                @click="toggleHeldChord(c)"
+              >
+                <div class="chord-tile-head">
+                  <div class="chord-tile-name" :style="{ color: noteColor(c.rootPitch, 2) }">
+                    {{ c.displayName }}
+                  </div>
+                  <div class="tile-actions">
+                    <button
+                      class="hw-btn tiny tile-play"
+                      @click.stop="playChordHit(c)"
+                      title="Play chord"
+                    >▶</button>
+                    <button
+                      class="hw-btn tiny tile-add"
+                      @click.stop="placeChordInProgression(c)"
+                      title="Add to progression"
+                    >+</button>
+                  </div>
+                </div>
+                <div class="chord-tile-kbd">
+                  <div
+                    v-for="key in keyboardWhites"
+                    :key="'mw' + key.whiteIndex"
+                    class="mini-white-key"
+                    :class="{ lit: c.midiSet.has(key.midi), rootLit: c.rootMidiSet.has(key.midi) }"
+                    :style="{
+                      left: (key.whiteIndex * WHITE_WIDTH_PCT) + '%',
+                      width: WHITE_WIDTH_PCT + '%',
+                      '--key-color': noteColor(key.pitch, 2),
+                    }"
+                  ></div>
+                  <div
+                    v-for="key in keyboardBlacks"
+                    :key="'mb' + key.leftWhiteIdx + '-' + key.pitch"
+                    class="mini-black-key"
+                    :class="{ lit: c.midiSet.has(key.midi), rootLit: c.rootMidiSet.has(key.midi) }"
+                    :style="{
+                      left: 'calc(' + ((key.leftWhiteIdx + 1) * WHITE_WIDTH_PCT) + '% - ' + (WHITE_WIDTH_PCT * 0.3) + '%)',
+                      width: (WHITE_WIDTH_PCT * 0.6) + '%',
+                      '--key-color': noteColor(key.pitch, 2),
+                    }"
+                  ></div>
+                </div>
+                <!-- Inline description, only when this tile is held -->
+                <div
+                  class="chord-tile-desc"
+                  v-if="heldChord && heldChord.id === c.id"
+                >
+                  <div class="chord-tile-desc-mood">{{ chordInfoFor(c).mood }}</div>
+                  <div class="chord-tile-desc-use">{{ chordInfoFor(c).use }}</div>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
+        </template>
+
+        <!-- Flat fallback for non-major/minor scales -->
+        <template v-else-if="chordCards.length">
+          <div class="chord-strip">
+            <div
+              v-for="c in chordCards"
+              :key="c.id"
+              class="chord-tile"
+              :class="{
+                hovered: hoveredChord && hoveredChord.id === c.id,
+                pinned: heldChord && heldChord.id === c.id,
+              }"
+              @mouseenter="hoveredChord = c"
+              @mouseleave="hoveredChord = null"
+              @click="toggleHeldChord(c)"
+            >
+              <div class="chord-tile-head">
+                <div class="chord-tile-name" :style="{ color: noteColor(c.rootPitch, 2) }">
+                  {{ c.displayName }}
+                </div>
+                <div class="tile-actions">
+                  <button
+                    class="hw-btn tiny tile-play"
+                    @click.stop="playChordHit(c)"
+                    title="Play chord"
+                  >▶</button>
+                  <button
+                    class="hw-btn tiny tile-add"
+                    @click.stop="placeChordInProgression(c)"
+                    title="Add to progression"
+                  >+</button>
+                </div>
+              </div>
+              <div class="chord-tile-kbd">
+                <div
+                  v-for="key in keyboardWhites"
+                  :key="'mw' + key.whiteIndex"
+                  class="mini-white-key"
+                  :class="{ lit: c.midiSet.has(key.midi), rootLit: c.rootMidiSet.has(key.midi) }"
+                  :style="{
+                    left: (key.whiteIndex * WHITE_WIDTH_PCT) + '%',
+                    width: WHITE_WIDTH_PCT + '%',
+                    '--key-color': noteColor(key.pitch, 2),
+                  }"
+                ></div>
+                <div
+                  v-for="key in keyboardBlacks"
+                  :key="'mb' + key.leftWhiteIdx + '-' + key.pitch"
+                  class="mini-black-key"
+                  :class="{ lit: c.midiSet.has(key.midi), rootLit: c.rootMidiSet.has(key.midi) }"
+                  :style="{
+                    left: 'calc(' + ((key.leftWhiteIdx + 1) * WHITE_WIDTH_PCT) + '% - ' + (WHITE_WIDTH_PCT * 0.3) + '%)',
+                    width: (WHITE_WIDTH_PCT * 0.6) + '%',
+                    '--key-color': noteColor(key.pitch, 2),
+                  }"
+                ></div>
+              </div>
+              <!-- Inline description, only when this tile is held -->
+              <div
+                class="chord-tile-desc"
+                v-if="heldChord && heldChord.id === c.id"
+              >
+                <div class="chord-tile-desc-mood">{{ chordInfoFor(c).mood }}</div>
+                <div class="chord-tile-desc-use">{{ chordInfoFor(c).use }}</div>
+              </div>
+            </div>
+          </div>
+        </template>
+
         <div v-else class="degree-empty">no chords at this level</div>
       </div>
     </div>
@@ -1617,6 +1753,36 @@ const ghostSuggestions = computed(() => {
    CHORD CARDS
    ═══════════════════════════════════════════════ */
 
+/* ── Function groups (Home / Energy / Tension) ── */
+.chord-group {
+  margin-bottom: 14px;
+}
+.chord-group:last-child {
+  margin-bottom: 0;
+}
+.chord-group-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding-left: 2px;
+  border-left: 3px solid var(--group-color, #888);
+  padding-left: 8px;
+}
+.chord-group-label {
+  font-family: "Fira Code", monospace;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 1.2px;
+  color: var(--group-color, #ccc);
+}
+.chord-group-hint {
+  font-family: "Fira Code", monospace;
+  font-size: 10px;
+  color: #888;
+  letter-spacing: 0.3px;
+}
+
 /* Compact "cheat sheet" grid of every chord in the key */
 .chord-strip {
   display: grid;
@@ -1634,6 +1800,17 @@ const ghostSuggestions = computed(() => {
     0 2px 4px rgba(0,0,0,0.3);
   transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
   cursor: pointer;
+}
+
+/* Secondary chords (7ths, sus, etc.) are visually smaller */
+.chord-tile.secondary {
+  padding: 6px 8px 8px;
+}
+.chord-tile.secondary .chord-tile-name {
+  font-size: 15px;
+}
+.chord-tile.secondary .chord-tile-kbd {
+  height: 20px;
 }
 .chord-tile:hover,
 .chord-tile.hovered {
