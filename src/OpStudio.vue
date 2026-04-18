@@ -1215,6 +1215,32 @@ const ghostSuggestions = computed(() => {
 
         <div v-else class="degree-empty">no chords at this level</div>
       </div>
+
+      <footer class="op-footer">
+        <img
+          class="op-footer-logo"
+          src="/chromatone-logo.svg"
+          alt="Chromatone logo"
+          width="28"
+          height="28"
+        />
+        <span class="op-footer-label">Built on</span>
+        <a
+          class="op-footer-link"
+          href="https://chromatone.center"
+          target="_blank"
+          rel="noopener"
+        >chromatone.center ↗</a>
+        <span class="op-footer-sep">·</span>
+        <a
+          class="op-footer-link"
+          href="https://github.com/chromatone/chromatone.center"
+          target="_blank"
+          rel="noopener"
+        >github ↗</a>
+        <span class="op-footer-sep">·</span>
+        <span class="op-footer-label">colors + pitch theory</span>
+      </footer>
     </div>
   </div>
 </template>
@@ -1945,6 +1971,57 @@ const ghostSuggestions = computed(() => {
 }
 .info-block-hint .info-use {
   font-style: italic;
+}
+
+/* Footer — attribution to chromatone.center, the pitch-color source */
+.op-footer {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px dashed rgba(0, 0, 0, 0.35);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: baseline;
+  gap: 8px;
+  font-family: "Fira Code", monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #4a4a4a;
+}
+.op-footer-logo {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.4));
+}
+.op-footer-label {
+  font-weight: 700;
+}
+.op-footer-sep {
+  opacity: 0.5;
+}
+.op-footer-link {
+  color: #1a1a1a;
+  font-weight: 900;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: color 0.15s, border-color 0.15s, text-shadow 0.15s;
+}
+.op-footer-link:hover,
+.op-footer-link:focus-visible {
+  color: #9cff6a;
+  border-bottom-color: #9cff6a;
+  text-shadow: 0 0 6px rgba(156, 255, 106, 0.35);
+  outline: none;
+}
+@media (max-width: 720px) {
+  .op-footer {
+    flex-direction: column;
+    gap: 4px;
+  }
+  .op-footer-sep { display: none; }
 }
 
 /* Progression panel — fixed slots + ghost suggestions + BPM */
